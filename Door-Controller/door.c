@@ -6,6 +6,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <sys/types.h>
 
 // Define shared memory structure
 struct SharedMemory {
@@ -114,7 +117,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    id = atoi(argv[1);
+    id = atoi(argv[1]);
     doorConfig = argv[3];
     sharedMemoryPath = argv[4];
     sharedMemoryOffset = atoi(argv[5]);
@@ -163,7 +166,6 @@ int main(int argc, char *argv[]) {
     // Send an initialization message to the overseer
     int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (overseerSocket != -1) {
-        connectToOverseer(overseerSocket, id, doorConfig, overseerAddress, overseerPort);
         close(overseerSocket);
     }
 
