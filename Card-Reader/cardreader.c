@@ -6,6 +6,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
 // Define shared memory structure
 struct SharedMemory {
@@ -29,21 +32,21 @@ void sendInitializationMessage(int overseerSocket, int id) {
 }
 
 // Function to open a TCP connection to the overseer and send data
-char sendScannedData(int overseerSocket, int id) {
+char sendScannedData(int overseerSocket, int id, const char *overseerAddress, int overseerPort) {
     char response = 'N'; // Default to 'N' for not allowed
     
     // Lock the mutex and check the scanned code
     pthread_mutex_lock(&sharedMem->mutex);
     if (sharedMem->scanned[0] != '\0') {
         // Create a TCP connection to the overseer
+        struct sockaddr_in overseerAddr;
+        memset(&overseerAddr, 0, sizeof(overseerAddr));
+        overseerAddr.sin_family = AF_INET;
+        overseerAddr.sin_port = htons(overseerPort);
+        inet_pton(AF_INET, overseerAddress, &(overseerAddr.sin_addr));
+        
         int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
         if (overseerSocket >= 0) {
-            struct sockaddr_in overseerAddr;
-            memset(&overseerAddr, 0, sizeof(overseerAddr));
-            overseerAddr.sin_family = AF_INET;
-            overseerAddr.sin_port = htons(overseerPort);
-            inet_pton(AF_INET, overseerAddress, &(overseerAddr.sin_addr));
-
             if (connect(overseerSocket, (struct sockaddr*)&overseerAddr, sizeof(overseerAddr)) == 0) {
                 // Prepare and send the message
                 char message[50];
@@ -119,7 +122,8 @@ int main(int argc, char *argv[]) {
 
     // Main loop for normal operation
     while (1) {
-        sendScannedData(overseerSocket, id);
+    sendScannedData(overseerSocket, id, overseerAddress, overseerPort);
+
     }
 
     // Clean up resources, close sockets, and release shared memory
