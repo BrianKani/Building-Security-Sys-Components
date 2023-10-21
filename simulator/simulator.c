@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/shm.h>
 #include <pthread.h>
+#include <signal.h>
 
 // Define shared memory structure for the overseer
 struct OverseerSharedMemory {
