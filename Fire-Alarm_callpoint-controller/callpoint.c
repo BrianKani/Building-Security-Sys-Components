@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 // Define shared memory structure
 struct SharedMemory {
