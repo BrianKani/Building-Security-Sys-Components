@@ -4,6 +4,8 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h> // Include headers for shared memory operations
 
 // Define the shared memory structure
 struct SharedMemory {
@@ -33,10 +35,15 @@ void* handleUDPDatagrams(void* arg) {
 // Function to initialize the overseer component
 void initializeOverseer(char* addressPort, int doorOpenDuration, int datagramResendDelay, char* authFile, char* connFile, char* layoutFile, char* sharedMemPath, int sharedMemOffset) {
     // Initialize shared memory
-    sharedMem = (struct SharedMemory*)malloc(sizeof(struct SharedMemory));
-    sharedMem->security_alarm = '-';
-    pthread_mutex_init(&(sharedMem->mutex), NULL);
-    pthread_cond_init(&(sharedMem->cond), NULL);
+    key_t shm_key = ftok(sharedMemPath, sharedMemOffset);
+    int shm_id = shmget(shm_key, sizeof(struct SharedMemory), 0666 | IPC_CREAT); // Add IPC_CREAT
+
+    if (shm_id == -1) {
+        perror("Error creating shared memory");
+        exit(1);
+    }
+
+    sharedMem = (struct SharedMemory*)shmat(shm_id, NULL, 0);
 
     // Set global configuration variables
     doorOpenDuration = doorOpenDuration;
@@ -44,7 +51,7 @@ void initializeOverseer(char* addressPort, int doorOpenDuration, int datagramRes
     authFile = authFile;
     connFile = connFile;
     layoutFile = layoutFile;
-
+    
     // Implement other initialization logic here
 }
 
@@ -74,9 +81,9 @@ int main(int argc, char* argv[]) {
     layoutFile = argv[6];
 
     // Initialize shared memory
-    key_t shm_key = ftok(argv[7], argv[8]);
+    key_t shm_key = ftok(argv[7], atoi(argv[8]));
     int shm_id = shmget(shm_key, sizeof(struct SharedMemory), 0666 | IPC_CREAT);
-    sharedMem = (struct SharedMemory*)shmat(shm_id, (void*)0, 0);
+    sharedMem = (struct SharedMemory*)shmat(shm_id, NULL, 0);
 
     // Create threads for handling TCP connections and UDP datagrams
     pthread_t tcpThread, udpThread;
@@ -84,14 +91,27 @@ int main(int argc, char* argv[]) {
     pthread_create(&udpThread, NULL, handleUDPDatagrams, NULL);
 
     // Initialize the overseer component
-    initializeOverseer(addressPort, doorOpenDuration, datagramResendDelay, authFile, connFile, layoutFile, argv[7], atoi(argv[8));
+initializeOverseer(addressPort, doorOpenDuration, datagramResendDelay, authFile, connFile, layoutFile, argv[7], atoi(argv[8]));
 
+    void initializeOverseer(char* addressPort, int doorOpenDuration, int datagramResendDelay, char* authFile, char* connFile, char* layoutFile, char* sharedMemPath, int sharedMemOffset) {
+    // Initialize shared memory
+    key_t shm_key = ftok(sharedMemPath, sharedMemOffset);
+    int shm_id = shmget(shm_key, sizeof(struct SharedMemory), 0666 | IPC_CREAT); // Add IPC_CREAT
 
-    // Main overseer logic
-    while (true) {
-        // Implement main overseer logic here
+    if (shm_id == -1) {
+        perror("Error creating shared memory");
+        exit(1);
     }
 
+    sharedMem = (struct SharedMemory*)shmat(shm_id, NULL, 0);
+
+    // Set global configuration variables
+    doorOpenDuration = doorOpenDuration;
+    datagramResendDelay = datagramResendDelay;
+    authFile = authFile;
+    connFile = connFile;
+    layoutFile = layoutFile;
+}
     // Cleanup and exit
     pthread_mutex_destroy(&(sharedMem->mutex));
     pthread_cond_destroy(&(sharedMem->cond));
@@ -100,3 +120,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
