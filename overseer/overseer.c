@@ -4,12 +4,6 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <string.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include "shared_structs.h" // To be created later
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 // Define the shared memory structure
 struct SharedMemory {
@@ -25,109 +19,84 @@ int datagramResendDelay;
 char* authFile;
 char* connFile;
 char* layoutFile;
-int overseerPort;
 
 // Function to handle incoming TCP connections
 void* handleTCPConnections(void* arg) {
-    int serverSocket, newSocket;
-    struct sockaddr_in serverAddress, newAddress;
-    socklen_t addrSize;
-    char buffer[1024];
-
-    // Create a socket
-    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket == -1) {
-        perror("Error creating server socket");
-        exit(1);
-    }
-
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(overseerPort);
-    serverAddress.sin_addr.s_addr = INADDR_ANY;
-
-    // Bind the socket
-    if (bind(serverSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        perror("Error binding server socket");
-        exit(1);
-    }
-
-    // Listen for incoming connections
-    if (listen(serverSocket, 10) == 0) {
-        printf("Listening for incoming connections...\n");
-    } else {
-        perror("Error listening for connections");
-        exit(1);
-    }
-
-    addrSize = sizeof(newAddress);
-    while (true) {
-        newSocket = accept(serverSocket, (struct sockaddr*)&newAddress, &addrSize);
-
-        if (newSocket < 0) {
-            perror("Error accepting connection");
-            exit(1);
-        }
-
-        recv(newSocket, buffer, 1024, 0);
-        printf("Received from client: %s\n");
-
-        send(newSocket, "Message received", strlen("Message received"), 0);
-
-        close(newSocket);
-    }
+    // Implement TCP connection handling logic here
 }
 
 // Function to handle incoming UDP datagrams
 void* handleUDPDatagrams(void* arg) {
-    int udpSocket;
-    struct sockaddr_in serverAddress;
-    socklen_t addrSize;
-    char buffer[1024];
-
-    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udpSocket == -1) {
-        perror("Error creating UDP socket");
-        exit(1);
-    }
-
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(overseerPort);
-    serverAddress.sin_addr.s_addr = INADDR_ANY;
-
-    if (bind(udpSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        perror("Error binding UDP socket");
-        exit(1);
-    }
-
-    addrSize = sizeof(serverAddress);
-    while (true) {
-        recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&serverAddress, &addrSize);
-        printf("Received UDP datagram: %s\n");
-    }
+    // Implement UDP datagram handling logic here
 }
 
 // Function to initialize the overseer component
 void initializeOverseer(char* addressPort, int doorOpenDuration, int datagramResendDelay, char* authFile, char* connFile, char* layoutFile, char* sharedMemPath, int sharedMemOffset) {
+    // Initialize shared memory
     sharedMem = (struct SharedMemory*)malloc(sizeof(struct SharedMemory));
     sharedMem->security_alarm = '-';
     pthread_mutex_init(&(sharedMem->mutex), NULL);
     pthread_cond_init(&(sharedMem->cond), NULL);
 
+    // Set global configuration variables
     doorOpenDuration = doorOpenDuration;
     datagramResendDelay = datagramResendDelay;
     authFile = authFile;
     connFile = connFile;
-    layoutFile = layoutFile; 
+    layoutFile = layoutFile;
+
+    // Implement other initialization logic here
 }
 
-int main(int argc, char* argv[]) {
-    overseerPort = atoi(argv[1]);
+// Function to process SCANNED messages from card readers
+void processScannedMessage(char* message) {
+    // Implement card access control logic here
+}
 
+// Function to raise a security alarm manually
+void raiseSecurityAlarm() {
+    // Implement security alarm logic here
+}
+
+// Main function
+int main(int argc, char* argv[]) {
+    if (argc < 9) {
+        fprintf(stderr, "Usage: overseer {address:port} {door open duration} {datagram resend delay} {auth file} {conn file} {layout file} {shared memory path} {shared memory offset}\n");
+        exit(1);
+    }
+
+    // Parse command-line arguments
+    char* addressPort = argv[1];
+    doorOpenDuration = atoi(argv[2]);
+    datagramResendDelay = atoi(argv[3]);
+    authFile = argv[4];
+    connFile = argv[5];
+    layoutFile = argv[6];
+
+    // Initialize shared memory
+    key_t shm_key = ftok(argv[7], argv[8]);
+    int shm_id = shmget(shm_key, sizeof(struct SharedMemory), 0666 | IPC_CREAT);
+    sharedMem = (struct SharedMemory*)shmat(shm_id, (void*)0, 0);
+
+    // Create threads for handling TCP connections and UDP datagrams
     pthread_t tcpThread, udpThread;
     pthread_create(&tcpThread, NULL, handleTCPConnections, NULL);
     pthread_create(&udpThread, NULL, handleUDPDatagrams, NULL);
 
-    void initializeOverseer(char* addressPort, int doorDuration, int datagramDelay, char* authFileName, char* connFileName, char* layoutFileName, char* sharedMemPath, int sharedMemOffset) {
-    }
-}
+    // Initialize the overseer component
+    initializeOverseer(addressPort, doorOpenDuration, datagramResendDelay, authFile, connFile, layoutFile, argv[7], atoi(argv[8));
 
+
+    // Main overseer logic
+    while (true) {
+        // Implement main overseer logic here
+    }
+
+    // Cleanup and exit
+    pthread_mutex_destroy(&(sharedMem->mutex));
+    pthread_cond_destroy(&(sharedMem->cond));
+    shmdt(sharedMem);
+    shmctl(shm_id, IPC_RMID, NULL);
+
+    return 0;
+}
