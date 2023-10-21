@@ -146,33 +146,25 @@ int main(int argc, char *argv[]) {
     memset(&doorAddr, 0, sizeof(doorAddr));
     doorAddr.sin_family = AF_INET;
     doorAddr.sin_port = htons(overseerPort);
-    inet_pton(AF_INET, overseerAddress, &(doorAddr.sin_addr));
+    doorAddr.sin_addr.s_addr = inet_addr(overseerAddress);
 
-    // Bind the socket
+    // Bind the socket to the overseer's address and port
     if (bind(doorSocket, (struct sockaddr*)&doorAddr, sizeof(doorAddr)) == -1) {
         perror("bind");
         exit(1);
     }
 
-    // Start listening for incoming connections
+    // Start listening on the socket
     if (listen(doorSocket, 10) == -1) {
         perror("listen");
         exit(1);
     }
 
-    // Send initialization message to the overseer
+    // Send an initialization message to the overseer
     int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (overseerSocket >= 0) {
-        struct sockaddr_in overseerAddr;
-        memset(&overseerAddr, 0, sizeof(overseerAddr));
-        overseerAddr.sin_family = AF_INET;
-        overseerAddr.sin_port = htons(overseerPort);
-        inet_pton(AF_INET, overseerAddress, &(overseerAddr.sin_addr));
-
-        if (connect(overseerSocket, (struct sockaddr*)&overseerAddr, sizeof(overseerAddr)) == 0) {
-            sendInitializationMessage(overseerSocket, id, doorConfig);
-            close(overseerSocket);
-        }
+    if (overseerSocket != -1) {
+        connectToOverseer(overseerSocket, id, doorConfig, overseerAddress, overseerPort);
+        close(overseerSocket);
     }
 
     // Main loop for normal operation
