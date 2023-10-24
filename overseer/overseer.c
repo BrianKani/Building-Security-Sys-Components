@@ -22,16 +22,102 @@ char* authFile;
 char* connFile;
 char* layoutFile;
 
-// Function to handle incoming TCP connections
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+} TCPClient;
+
 void* handleTCPConnections(void* arg) {
-    // Implement TCP connection handling logic here
+    TCPClient* client = (TCPClient*)arg;
+    int clientSocket = client->socket;
+
+    char buffer[1024];
+
+    while (1) {
+        ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
+
+        if (bytesRead <= 0) {
+            shutdown(clientSocket, SHUT_RDWR);  // Shutdown both sending and receiving
+            close(clientSocket);
+            free(client);
+            pthread_exit(NULL);
+        }
+
+        if (strncmp(buffer, "SCANNED", 7) == 0) {
+            // Process the received data as needed
+            // Example: Send a response
+            const char* response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+            send(clientSocket, response, strlen(response), 0);
+        }
+
+        memset(buffer, 0, sizeof(buffer));
+    }
+
+    return NULL;
 }
+// Structure to represent UDP data
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+} UDPData;
 
 // Function to handle incoming UDP datagrams
 void* handleUDPDatagrams(void* arg) {
-    // Implement UDP datagram handling logic here
+    UDPData* udpData = (UDPData*)arg;
+
+    int udpSocket = udpData->socket;
+
+    char buffer[1024]; // Adjust buffer size as needed
+
+    while (1) {
+        ssize_t bytesRead;
+        socklen_t addressSize = sizeof(udpData->address);
+
+        bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&(udpData->address), &addressSize);
+
+        if (bytesRead <= 0) {
+            continue; // Or consider terminating the thread
+        }
+        memset(buffer, 0, sizeof(buffer));
+    }
+
+    return NULL;
 }
 
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+} UDPData;
+
+// Function to handle incoming UDP datagrams
+void* handleUDPDatagrams(void* arg) {
+    UDPData* udpData = (UDPData*)arg;
+
+    int udpSocket = udpData->socket;
+
+    char buffer[1024]; // Adjust buffer size as needed
+
+    while (1) {
+        ssize_t bytesRead;
+        socklen_t addressSize = sizeof(udpData->address);
+
+        bytesRead = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&(udpData->address), &addressSize);
+
+        if (bytesRead <= 0) {
+            continue; // Or consider terminating the thread
+        }
+
+        // Process the received data as needed
+        printf("Received UDP message from %s:%d: %s\n",
+               inet_ntoa(udpData->address.sin_addr),
+               ntohs(udpData->address.sin_port),
+               buffer);
+
+        memset(buffer, 0, sizeof(buffer);
+    }
+
+    return NULL;
+}
 // Function to initialize the overseer component
 void initializeOverseer(char* addressPort, int doorOpenDuration, int datagramResendDelay, char* authFile, char* connFile, char* layoutFile, char* sharedMemPath, int sharedMemOffset) {
     // Initialize shared memory
@@ -89,6 +175,113 @@ int main(int argc, char* argv[]) {
     pthread_t tcpThread, udpThread;
     pthread_create(&tcpThread, NULL, handleTCPConnections, NULL);
     pthread_create(&udpThread, NULL, handleUDPDatagrams, NULL);
+
+	
+    int serverSocket; // Server socket file descriptor
+    struct sockaddr_in serverAddr; // Address structure for the server (IPv4)
+    int port = 8080;
+    int backlog = 5; // Maximum number of pending connections
+
+    // Create a socket
+    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket == -1) {
+        perror("socket");
+        exit(1);
+    }
+
+    // Initialize the server address structure
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY; // Bind to any available network interface
+    serverAddr.sin_port = htons(port);
+
+    // Bind the socket to the specified address
+    if (bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
+        perror("bind");
+        close(serverSocket);
+        exit(1);
+    }
+
+    // Listen for incoming connections
+    if (listen(serverSocket, backlog) == -1) {
+        perror("listen");
+        close(serverSocket);
+        exit(1);
+    }
+
+    printf("Server is listening on port %d...\n", port);
+
+    while (1) {
+        // Accept incoming connections
+        struct sockaddr_in clientAddr;
+        socklen_t clientAddrLen = sizeof(clientAddr);
+        int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientAddrLen);
+
+        if (clientSocket == -1) {
+            perror("accept");
+            continue;
+        }
+
+        // Create a new thread to handle the client connection
+        TCPClient* client = (TCPClient*)malloc(sizeof(TCPClient));
+        client->socket = clientSocket;
+        client->address = clientAddr;
+
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, handleTCPConnections, client) != 0) {
+            perror("pthread_create");
+            free(client);
+            close(clientSocket);
+            continue;
+        }
+    }
+
+    close(serverSocket);
+    return 0;
+}
+
+    int udpSocket; // UDP socket file descriptor
+    struct sockaddr_in serverAddr; // Address structure for the server (IPv4)
+    int port = 8080;
+
+
+    // Create a UDP socket
+    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udpSocket == -1) {
+        perror("socket");
+        exit(1);
+    }
+
+    // Initialize the server address structure
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY; // Bind to any available network interface
+    serverAddr.sin_port = htons(port);
+
+    // Bind the UDP socket to the specified address
+    if (bind(udpSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
+        perror("bind");
+        close(udpSocket);
+        exit(1);
+    }
+
+    printf("UDP server is listening on port %d...\n", port);
+
+    while (1) {
+        UDPData* udpData = (UDPData*)malloc(sizeof(UDPData));
+        udpData->socket = udpSocket;
+
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, handleUDPDatagrams, udpData) != 0) {
+            perror("pthread_create");
+            free(udpData);
+        }
+    }
+
+    // You can close the UDP socket when done, but in this example, the server runs indefinitely.
+    // close(udpSocket);
+
+    return 0;
+}
+
 
     // Initialize the overseer component
 initializeOverseer(addressPort, doorOpenDuration, datagramResendDelay, authFile, connFile, layoutFile, argv[7], atoi(argv[8]));
