@@ -31,6 +31,7 @@ int main(int argc, char **argv)
     const char *shm_path = argv[3];
     int shm_offset = atoi(argv[4]);
     const char *overseer_addr = argv[5];
+    int overseer_port = atoi(argv[6]);
     
     int shm_fd = shm_open(shm_path, O_RDWR, 0);
     if (shm_fd == -1) {
