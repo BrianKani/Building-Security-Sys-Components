@@ -10,125 +10,83 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
-// Define shared memory structure
-struct SharedMemory {
+typedef struct {
     char scanned[16];
     pthread_mutex_t mutex;
     pthread_cond_t scanned_cond;
-
+    
     char response; // 'Y' or 'N' (or '\0' at first)
     pthread_cond_t response_cond;
-};
+} shm_cardreader;
 
-// Global variable for shared memory
-struct SharedMemory *sharedMem;
-
-// Function to send initialization message to the overseer
-void sendInitializationMessage(int overseerSocket, int id) {
-    char message[50];
-    snprintf(message, sizeof(message), "CARDREADER %d HELLO#", id);
-    
-    // Implement the logic to send the initialization message
-}
-
-// Function to open a TCP connection to the overseer and send data
-char sendScannedData(int overseerSocket, int id, const char *overseerAddress, int overseerPort) {
-    char response = 'N'; // Default to 'N' for not allowed
-    
-    // Lock the mutex and check the scanned code
-    pthread_mutex_lock(&sharedMem->mutex);
-    if (sharedMem->scanned[0] != '\0') {
-        // Create a TCP connection to the overseer
-        struct sockaddr_in overseerAddr;
-        memset(&overseerAddr, 0, sizeof(overseerAddr));
-        overseerAddr.sin_family = AF_INET;
-        overseerAddr.sin_port = htons(overseerPort);
-        inet_pton(AF_INET, overseerAddress, &(overseerAddr.sin_addr));
-        
-        int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
-        if (overseerSocket >= 0) {
-            if (connect(overseerSocket, (struct sockaddr*)&overseerAddr, sizeof(overseerAddr)) == 0) {
-                // Prepare and send the message
-                char message[50];
-                snprintf(message, sizeof(message), "CARDREADER %d SCANNED %s#", id, sharedMem->scanned);
-
-                if (send(overseerSocket, message, strlen(message), 0) != -1) {
-                    // Successfully sent the message
-                    response = 'Y'; // Set response to 'Y' for allowed
-                }
-
-                // Close the connection
-                close(overseerSocket);
-            }
-        }
-    }
-
-    // Update the response and signal response_cond
-    sharedMem->response = response;
-    pthread_cond_signal(&sharedMem->response_cond);
-
-    // Unlock the mutex
-    pthread_mutex_unlock(&sharedMem->mutex);
-
-    return response;
-}
-
-int main(int argc, char *argv[]) {
-    // Parse and validate command-line arguments
-    int id;
-    char* sharedMemoryPath;
-    int sharedMemoryOffset;
-    char* overseerAddress;
-    int overseerPort;
-
-    if (argc != 6) {
-        fprintf(stderr, "Usage: %s {id} {shared memory path} {shared memory offset} {overseer address} {overseer port}\n", argv[0]);
+int main(int argc, char **argv)
+{
+    if (argc < 6) {
+        fprintf(stderr, "usage: {id} {wait time (in microseconds)} {shared memory path} {shared memory offset} {overseer address:port}\n");
         exit(1);
     }
 
-    id = atoi(argv[1]);
-    sharedMemoryPath = argv[2];
-    sharedMemoryOffset = atoi(argv[3]);
-    overseerAddress = argv[4];
-    overseerPort = atoi(argv[5]);
-
-    // Open and map shared memory
-    int shm_fd = shm_open(sharedMemoryPath, O_RDWR, 0666);
+    int id = atoi(argv[1]);
+    int waittime = atoi(argv[2]);
+    const char *shm_path = argv[3];
+    int shm_offset = atoi(argv[4]);
+    const char *overseer_addr = argv[5];
+    
+    int shm_fd = shm_open(shm_path, O_RDWR, 0);
     if (shm_fd == -1) {
-        perror("shm_open");
+        perror("shm_open()");
+        exit(1);
+    }
+
+    struct stat shm_stat;
+    if (fstat(shm_fd, &shm_stat) == -1) {
+        perror("fstat()");
         exit(1);
     }
     
-    sharedMem = (struct SharedMemory*)mmap(0, sizeof(struct SharedMemory), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, sharedMemoryOffset);
-    if (sharedMem == MAP_FAILED) {
-        perror("mmap");
+    printf("Shared memory file size: %ld\n", shm_stat.st_size);
+
+    char *shm = mmap(NULL, shm_stat.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shm == MAP_FAILED) {
+        perror("mmap()");
+        exit(1);
+    }
+    shm_cardreader *shared = (shm_cardreader *)(shm + shm_offset);
+    int overseer_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (overseer_socket == -1) {
+        perror("socket()");
+        exit(1);
+    }
+    struct sockaddr_in overseer_server;
+    overseer_server.sin_family = AF_INET;
+    overseer_server.sin_port = htons(overseer_port);
+    if (inet_pton(AF_INET, overseer_addr, &overseer_server.sin_addr) <= 0) {
+        perror("inet_pton()");
+        exit(1);
+    }
+    if (connect(overseer_socket, (struct sockaddr *)&overseer_server, sizeof(overseer_server)) == -1) {
+        perror("connect()");
         exit(1);
     }
 
-    // Send initialization message to the overseer
-    int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (overseerSocket >= 0) {
-        struct sockaddr_in overseerAddr;
-        memset(&overseerAddr, 0, sizeof(overseerAddr));
-        overseerAddr.sin_family = AF_INET;
-        overseerAddr.sin_port = htons(overseerPort);
-        inet_pton(AF_INET, overseerAddress, &(overseerAddr.sin_addr));
-
-        if (connect(overseerSocket, (struct sockaddr*)&overseerAddr, sizeof(overseerAddr)) == 0) {
-            sendInitializationMessage(overseerSocket, id);
-            close(overseerSocket);
+    pthread_mutex_lock(&shared->mutex);
+    for (;;) {
+        if (shared->scanned[0] != '\0') {
+            char buf[17];
+            memcpy(buf, shared->scanned, 16);
+            buf[16] = '\0';
+            printf("Scanned %s\n", buf);
+            send(overseer_socket, buf, 16, 0);
+            shared->response = 'Y';
+            pthread_cond_signal(&shared->response_cond);
         }
+        pthread_cond_wait(&shared->scanned_cond, &shared->mutex);
     }
 
-    // Main loop for normal operation
-    while (1) {
-    sendScannedData(overseerSocket, id, overseerAddress, overseerPort);
-
-    }
-
-    // Clean up resources, close sockets, and release shared memory
-    munmap(sharedMem, sizeof(struct SharedMemory));
+    close(overseer_socket);
     close(shm_fd);
+
+    
 
     return 0;
 }
