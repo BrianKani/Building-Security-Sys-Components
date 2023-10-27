@@ -1,44 +1,3 @@
-/*
- * Fire Alarm Unit - Safety-Critical Software
- * ------------------------------------------
- *
- * Description:
- * This program, 'firealarm,' implements a safety-critical fire alarm unit that detects
- * fire emergencies and takes necessary actions to ensure building safety. This component
- * is vital in handling fire incidents and follows safety-critical software standards.
- *
- * Safety-Critical Considerations:
- * 1. Reliability: The program prioritizes reliability by ensuring that alarm triggers,
- *    door operations, and communication with the overseer are robust and dependable.
- *
- * 2. Fault Tolerance: The program includes error handling mechanisms for various scenarios,
- *    such as socket binding failures, TCP connection problems, or invalid datagrams.
- *
- * 3. Minimal Dynamic Memory Usage: To minimize potential memory-related issues, the program
- *    avoids dynamic memory allocation where possible. Fixed-size arrays are used for
- *    shared memory and door storage.
- *
- * 4. Safety Standards: The code adheres to appropriate safety-critical software standards,
- *    and deviations are documented and justified.
- *
- * Deviations and Justifications:
- * - Given the safety-critical nature of the component, a simplified code structure has been
- *   provided. However, complete safety-critical development involves rigorous testing,
- *   formal methods, and strict compliance with established safety standards (e.g., DO-178C for
- *   avionics systems).
- *
- * - Error Handling: The code includes error handling but must undergo extensive testing and
- *   verification to meet the requirements of safety-critical applications fully.
- *
- * - Thorough Testing: Comprehensive testing and validation are essential to ensure the
- *   program's correct operation during fire emergency situations. This is a critical aspect
- *   of safety-critical software development.
- *
- * Note: Safety-critical software often requires more detailed safety documentation and
- * formal verification processes to meet industry-specific standards.
- *
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +7,10 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+
+#define UDP_PORT 12345 
+#define OVERSEER_PORT 8080  
+#define OVERSEER_IP "127.0.0.1"  
 
 // Define shared memory structure
 struct SharedMemory {
@@ -65,42 +28,127 @@ struct Door {
 // Global variables for shared memory and door list
 struct SharedMemory *sharedMem;
 struct Door doors[100]; // Adjust the size as needed
+int udpSocket;  // Declare the UDP socket
 
-// Function to send "DREG" confirmation to overseer
+// Function to send "DREG" confirmation to the overseer
 void sendDoorRegistrationConfirmation(int overseerSocket, struct in_addr doorAddress, in_port_t doorPort) {
     // Implement the logic to send the confirmation
 }
 
 // Function to handle fire emergency
 void handleFireEmergency() {
+    // Lock the mutex before accessing shared data
+    pthread_mutex_lock(&sharedMem->mutex);
+
     // Implement the logic to trigger the alarm, open doors, and send notifications
+
+    // Unlock the mutex when done
+    pthread_mutex_unlock(&sharedMem->mutex);
+
+    // Signal and wait using condition variables
+    pthread_cond_signal(&sharedMem->cond);
+    pthread_cond_wait(&sharedMem->cond, &sharedMem->mutex);
 }
 
 // Function to handle temperature updates
 void handleTemperatureUpdate() {
+    // Lock the mutex before accessing shared data
+    pthread_mutex_lock(&sharedMem->mutex);
+
     // Implement the logic to check temperature and timestamp
+
+    // Unlock the mutex when done
+    pthread_mutex_unlock(&sharedMem->mutex);
+
+    // Signal and wait using condition variables
+    pthread_cond_signal(&sharedMem->cond);
+    pthread_cond_wait(&sharedMem->cond, &sharedMem->mutex);
 }
 
 // Function to handle door registration
 void handleDoorRegistration(int overseerSocket, struct sockaddr_in overseerAddr) {
+    // Lock the mutex before accessing shared data
+    pthread_mutex_lock(&sharedMem->mutex);
+
     // Implement the logic to add doors to the list and send confirmation
+
+    // Unlock the mutex when done
+    pthread_mutex_unlock(&sharedMem->mutex);
+
+    // Signal and wait using condition variables
+    pthread_cond_signal(&sharedMem->cond);
+    pthread_cond_wait(&sharedMem->cond, &sharedMem->mutex);
 }
 
 int main(int argc, char *argv[]) {
-    // Parse and validate command-line arguments
-    // Bind a UDP socket to listen for incoming datagrams
-    // Establish a TCP connection with the overseer and send an initialization message
+    // Create a UDP socket to listen for incoming datagrams
+    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udpSocket < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr, 0, sizeof(serverAddr));
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(UDP_PORT);  // Set the UDP port
+    serverAddr.sin_addr.s_addr = INADDR_ANY;  // Listen on all available network interfaces
+
+    // Bind the UDP socket to the specified port
+    if (bind(udpSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
+        perror("bind");
+        close(udpSocket);
+        exit(EXIT_FAILURE);
+    }
+
+    // Create a TCP socket for the overseer connection
+    int overseerSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (overseerSocket < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in overseerAddr;
+    memset(&overseerAddr, 0, sizeof(overseerAddr));
+    overseerAddr.sin_family = AF_INET;
+    overseerAddr.sin_port = htons(OVERSEER_PORT);  // Define the port
+    overseerAddr.sin_addr.s_addr = inet_addr(OVERSEER_IP);  // Define the IP address
+
+    // Connect to the overseer
+    if (connect(overseerSocket, (struct sockaddr*)&overseerAddr, sizeof(overseerAddr)) < 0) {
+        perror("connect");
+        exit(EXIT_FAILURE);
+    }
+
+    // Send an initialization message (customize this)
+    char initMessage[] = "INIT";
+    send(overseerSocket, initMessage, strlen(initMessage), 0);
 
     // Main loop to listen for UDP datagrams
     while (1) {
-        // Receive UDP datagram
-        // Check the datagram type and process accordingly
-        if (/* datagram type is FIRE */) {
-            handleFireEmergency();
-        } else if (/* datagram type is TEMP */) {
-            handleTemperatureUpdate();
-        } else if (/* datagram type is DOOR */) {
-            handleDoorRegistration(overseerSocket, overseerAddr);
+        // Define a buffer to receive the datagram
+        char buffer[1024];
+        struct sockaddr_in clientAddr;
+        socklen_t addrLen = sizeof(clientAddr);
+
+        // Receive the UDP datagram
+        ssize_t recvResult = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr, &addrLen);
+
+        if (recvResult < 0) {
+            perror("recvfrom");
+            // Handle the error
+        } else {
+            // Datagram received successfully
+        // Datagram received successfully
+	if (strcmp(buffer, "FIRE") == 0) {
+    		handleFireEmergency();
+	} else if (strcmp(buffer, "TEMP") == 0) {
+    	handleTemperatureUpdate();
+	} else if (strcmp(buffer, "DOOR") == 0) {
+    	handleDoorRegistration(overseerSocket, overseerAddr);
+	} else {
+    	// Handle other or unknown datagram types
+	}
         }
     }
 
